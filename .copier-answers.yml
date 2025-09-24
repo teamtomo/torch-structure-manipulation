@@ -1,0 +1,14 @@
+# Do not edit - changes here will be overwritten by Copier
+_commit: v1
+_src_path: gh:pydev-guide/pyrepo-copier
+author_email: davidetorre99@gmail.com
+author_name: Davide Torre
+github_username: teamtomo
+mode: tooling
+module_name: torch_structure_manipulation
+project_name: torch-structure-manipulation
+project_short_description: 'A python package to extract bonding environments from
+    cif files and perform a few basic structure transformation (centering at a desired
+    point, translation, rotation, removing atoms within/outisde a radius, removing
+    sidechains, separating proteins and RNA) '
+
