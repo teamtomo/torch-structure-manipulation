@@ -8,53 +8,6 @@ import torch
 from .utils import df_to_atomzyx
 
 
-def calculate_center_from_tensors(
-    coords: torch.Tensor, use_center_of_mass: bool, masses: torch.Tensor | None = None
-) -> torch.Tensor:
-    """Calculate center from coordinates and masses tensors.
-
-    Parameters
-    ----------
-    coords : torch.Tensor
-        Tensor of shape (n_atoms, 3) containing coordinates
-    use_center_of_mass : bool
-        If True, uses center of mass. If False, uses geometric center.
-    masses : torch.Tensor | None
-        Tensor of atomic masses. Required if use_center_of_mass is True.
-
-    Returns
-    -------
-    torch.Tensor
-        Center point as tensor of shape (3,)
-    """
-    if not use_center_of_mass:
-        return torch.mean(coords, dim=0)
-
-    if masses is None:
-        # Fallback to geometric center if no masses provided
-        warnings.warn(
-            "use_center_of_mass is True but masses is None. "
-            "Falling back to geometric center.",
-            stacklevel=2,
-        )
-        return torch.mean(coords, dim=0)
-
-    # Ensure masses are on same device as coords
-    masses = masses.to(coords.device)
-
-    total_mass = torch.sum(masses)
-    if total_mass == 0:
-        warnings.warn(
-            "use_center_of_mass is True but total_mass is 0. "
-            "Falling back to geometric center.",
-            stacklevel=2,
-        )
-        return torch.mean(coords, dim=0)
-
-    center_of_mass = torch.sum(coords * masses.unsqueeze(1), dim=0) / total_mass
-    return center_of_mass
-
-
 def center_structure(
     df: pd.DataFrame,
     center_point: tuple[float, float, float] | None = None,
@@ -157,3 +110,50 @@ def center_structure_from_atomzyx(
     centered_atomzyx = atomzyx + translation
 
     return centered_atomzyx
+
+
+def calculate_center_from_tensors(
+    coords: torch.Tensor, use_center_of_mass: bool, masses: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Calculate center from coordinates and masses tensors.
+
+    Parameters
+    ----------
+    coords : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing coordinates
+    use_center_of_mass : bool
+        If True, uses center of mass. If False, uses geometric center.
+    masses : torch.Tensor | None
+        Tensor of atomic masses. Required if use_center_of_mass is True.
+
+    Returns
+    -------
+    torch.Tensor
+        Center point as tensor of shape (3,)
+    """
+    if not use_center_of_mass:
+        return torch.mean(coords, dim=0)
+
+    if masses is None:
+        # Fallback to geometric center if no masses provided
+        warnings.warn(
+            "use_center_of_mass is True but masses is None. "
+            "Falling back to geometric center.",
+            stacklevel=2,
+        )
+        return torch.mean(coords, dim=0)
+
+    # Ensure masses are on same device as coords
+    masses = masses.to(coords.device)
+
+    total_mass = torch.sum(masses)
+    if total_mass == 0:
+        warnings.warn(
+            "use_center_of_mass is True but total_mass is 0. "
+            "Falling back to geometric center.",
+            stacklevel=2,
+        )
+        return torch.mean(coords, dim=0)
+
+    center_of_mass = torch.sum(coords * masses.unsqueeze(1), dim=0) / total_mass
+    return center_of_mass
