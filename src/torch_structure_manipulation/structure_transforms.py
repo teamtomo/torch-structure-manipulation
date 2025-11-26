@@ -1,323 +1,557 @@
-import torch
-import pandas as pd
-import numpy as np
-from typing import Optional, Tuple, Union, List
+"""Module containing functions for transforming and analyzing molecular structures."""
+
 import warnings
 
+import numpy as np
+import pandas as pd
+import roma
+import torch
 
-class StructureTransforms:
-    """Structure transformations using PyTorch tensors."""
-    
-    def __init__(self):
-        pass
-    
-    def center_structure(self, 
-                        df: pd.DataFrame, 
-                        center_point: Optional[Tuple[float, float, float]] = None,
-                        use_center_of_mass: bool = False,
-                        atom_selection: Optional[pd.Series] = None) -> pd.DataFrame:
-        """Center structure at specified point or origin."""
-        if len(df) == 0:
-            return df.copy()
-            
-        df_result = df.copy()
-        
-        coords = torch.tensor(df[['x', 'y', 'z']].values, dtype=torch.float32)
-        
-        if atom_selection is not None:
-            selection_mask = torch.tensor(atom_selection.values, dtype=torch.bool)
-            selected_coords = coords[selection_mask]
-            selected_df = df[atom_selection]
-        else:
-            selected_coords = coords
-            selected_df = df
-        
-        target_center = torch.zeros(3, dtype=torch.float32) if center_point is None else \
-                       torch.tensor(center_point, dtype=torch.float32)
-        
-        current_center = self._calculate_center_vectorized(selected_coords, selected_df, use_center_of_mass)
-        
-        translation = target_center - current_center
-        coords += translation
-        
-        df_result[['x', 'y', 'z']] = coords.numpy()
-        
-        return df_result
-    
-    def apply_rotation(self, 
-                      df: pd.DataFrame, 
-                      rotation_matrix: Union[np.ndarray, torch.Tensor],
-                      center_point: Optional[Tuple[float, float, float]] = None) -> pd.DataFrame:
-        """Apply a rotation matrix to the structure.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Structure DataFrame with x, y, z coordinates
-        rotation_matrix : Union[np.ndarray, torch.Tensor]
-            3x3 rotation matrix
-        center_point : Optional[Tuple[float, float, float]]
-            Point to rotate around. If None, rotates around origin
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with rotated coordinates
-        """
-        df = df.copy()
-        
-        # Convert to torch tensor if needed
-        if isinstance(rotation_matrix, np.ndarray):
-            rotation_matrix = torch.from_numpy(rotation_matrix).float()
-        
-        # Get coordinates
-        coords = torch.tensor(df[['x', 'y', 'z']].values, dtype=torch.float32)
-        
-        # Center coordinates if specified
-        if center_point is not None:
-            center = torch.tensor(center_point, dtype=torch.float32)
-            coords = coords - center
-        
-        # Apply rotation
-        rotated_coords = torch.matmul(coords, rotation_matrix.T)
-        
-        # Translate back if centered
-        if center_point is not None:
-            rotated_coords = rotated_coords + center
-        
-        # Update DataFrame
-        df[['x', 'y', 'z']] = rotated_coords.cpu().numpy()
-        
-        return df
-    
-    def apply_translation(self, 
-                         df: pd.DataFrame, 
-                         translation_vector: Union[Tuple[float, float, float], np.ndarray, torch.Tensor]) -> pd.DataFrame:
-        """Apply a translation to the structure.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Structure DataFrame with x, y, z coordinates
-        translation_vector : Union[Tuple[float, float, float], np.ndarray, torch.Tensor]
-            Translation vector (dx, dy, dz)
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with translated coordinates
-        """
-        df = df.copy()
-        
-        if isinstance(translation_vector, (tuple, list)):
-            translation_vector = np.array(translation_vector)
-        elif isinstance(translation_vector, torch.Tensor):
-            translation_vector = translation_vector.cpu().numpy()
-        
-        df[['x', 'y', 'z']] += translation_vector
-        
-        return df
-    
-    def remove_atoms_by_radius(self, 
-                              df: pd.DataFrame, 
-                              center_point: Tuple[float, float, float],
-                              radius: float,
-                              keep_inside: bool = True) -> pd.DataFrame:
-        """Remove atoms within or outside a specified radius.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Structure DataFrame
-        center_point : Tuple[float, float, float]
-            Center point for radius calculation
-        radius : float
-            Radius in Angstroms
-        keep_inside : bool
-            If True, keeps atoms inside the radius. If False, keeps atoms outside.
-            
-        Returns
-        -------
-        pd.DataFrame
-            Filtered DataFrame
-        """
-        if len(df) == 0:
-            return df.copy()
-        
-        coords = torch.tensor(df[['x', 'y', 'z']].values, dtype=torch.float32, )
-        center = torch.tensor(center_point, dtype=torch.float32, )
-        
-        distances = torch.norm(coords - center, dim=1)
-        mask = (distances <= radius) if keep_inside else (distances > radius)
-        
-        return df[mask.cpu().numpy()].copy()
-    
-    def remove_sidechains(self, df: pd.DataFrame, keep_backbone_atoms: Optional[List[str]] = None) -> pd.DataFrame:
-        """Remove sidechain atoms, keeping only backbone atoms.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Structure DataFrame with 'atom' column containing atom names
-        keep_backbone_atoms : Optional[List[str]]
-            List of atom names to keep. If None, uses standard protein backbone atoms.
-            
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with only backbone atoms
-        """
-        if keep_backbone_atoms is None:
-            # Standard protein backbone atoms
-            keep_backbone_atoms = ['N', 'CA', 'C', 'O', 'H', 'HA']
-            # Add nucleic acid backbone atoms
-            keep_backbone_atoms.extend(["P", "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "O2'", "C1'"])
-        
-        # Filter atoms
-        backbone_mask = df['atom'].isin(keep_backbone_atoms)
-        
-        return df[backbone_mask].copy()
-    
-    def separate_protein_rna(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Separate protein and RNA/DNA components.
-        
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Structure DataFrame with 'residue' column
-            
-        Returns
-        -------
-        Tuple[pd.DataFrame, pd.DataFrame]
-            (protein_df, nucleic_acid_df)
-        """
-        # Standard amino acid residues
-        amino_acids = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL',
-            # Non-standard amino acids
-            'SEC', 'PYL', 'MSE', 'HYP', 'NLE'
-        }
-        
-        # Nucleic acid residues
-        nucleic_acids = {
-            'A', 'T', 'G', 'C', 'U',  # Standard bases
-            'DA', 'DT', 'DG', 'DC',   # DNA
-            'ADE', 'THY', 'GUA', 'CYT', 'URA',  # Full names
-            # Modified bases
-            'PSU', 'I', 'M7G', 'M2G', 'M22G', 'YYG', 'H2U', 'OMC', 'OMG'
-        }
-        
-        # Separate based on residue names
-        protein_mask = df['residue'].isin(amino_acids)
-        nucleic_mask = df['residue'].isin(nucleic_acids)
-        
-        protein_df = df[protein_mask].copy()
-        nucleic_df = df[nucleic_mask].copy()
-        
-        # Handle remaining residues (warn if significant amount)
-        remaining = df[~(protein_mask | nucleic_mask)]
-        if len(remaining) > 0:
-            warnings.warn(f"Found {len(remaining)} atoms in {remaining['residue'].nunique()} "
-                         f"unrecognized residue types: {set(remaining['residue'].unique())}")
-        
-        return protein_df, nucleic_df
-    
-    
-    def _calculate_center_of_mass(self, df: pd.DataFrame) -> np.ndarray:
-        """Calculate center of mass using atomic masses."""
-        coords = df[['x', 'y', 'z']].values
-        
-        # Use atomic weights if available, otherwise use atomic numbers
-        if 'atomic_weight' in df.columns:
-            masses = df['atomic_weight'].values
-        elif 'atomic_number' in df.columns:
-            masses = df['atomic_number'].values
-        else:
-            # Fallback to equal masses (geometric center)
-            masses = np.ones(len(df))
-        
-        total_mass = np.sum(masses)
-        center_of_mass = np.sum(coords * masses[:, np.newaxis], axis=0) / total_mass
-        
-        return center_of_mass
-    
-    def _calculate_center_vectorized(self, coords: torch.Tensor, df: pd.DataFrame, 
-                                    use_center_of_mass: bool) -> torch.Tensor:
-        """Calculate center."""
-        if not use_center_of_mass:
-            return torch.mean(coords, dim=0)
-        
-        # Vectorized mass assignment and center of mass calculation
-        if 'atomic_weight' in df.columns:
-            masses = torch.tensor(df['atomic_weight'].values, dtype=torch.float32)
-        elif 'atomic_number' in df.columns:
-            masses = torch.tensor(df['atomic_number'].values, dtype=torch.float32)
-        else:
-            # Fallback to geometric center for equal masses
-            return torch.mean(coords, dim=0)
-        
-        # Single vectorized center of mass calculation
-        total_mass = torch.sum(masses)
-        if total_mass == 0:
-            return torch.mean(coords, dim=0)
-        
-        center_of_mass = torch.sum(coords * masses.unsqueeze(1), dim=0) / total_mass
-        return center_of_mass
-    
-    def _calculate_geometric_center(self, df: pd.DataFrame) -> np.ndarray:
-        """Calculate geometric center (centroid)."""
-        coords = df[['x', 'y', 'z']].values
-        return np.mean(coords, axis=0)
-    
-    def create_rotation_matrix_from_euler(self, 
-                                        angles: Tuple[float, float, float],
-                                        order: str = 'xyz') -> torch.Tensor:
-        """Create rotation matrix from Euler angles.
-        
-        Parameters
-        ----------
-        angles : Tuple[float, float, float]
-            Euler angles in radians (alpha, beta, gamma)
-        order : str
-            Rotation order (e.g., 'xyz', 'zyx')
-            
-        Returns
-        -------
-        torch.Tensor
-            3x3 rotation matrix
-        """
-        alpha, beta, gamma = angles
-        
-        # Convert angles to tensors
-        alpha_t = torch.tensor(alpha, dtype=torch.float32, )
-        beta_t = torch.tensor(beta, dtype=torch.float32, )
-        gamma_t = torch.tensor(gamma, dtype=torch.float32, )
-        
-        # Create individual rotation matrices
-        Rx = torch.tensor([
-            [1, 0, 0],
-            [0, torch.cos(alpha_t), -torch.sin(alpha_t)],
-            [0, torch.sin(alpha_t), torch.cos(alpha_t)]
-        ], dtype=torch.float32, )
-        
-        Ry = torch.tensor([
-            [torch.cos(beta_t), 0, torch.sin(beta_t)],
-            [0, 1, 0],
-            [-torch.sin(beta_t), 0, torch.cos(beta_t)]
-        ], dtype=torch.float32, )
-        
-        Rz = torch.tensor([
-            [torch.cos(gamma_t), -torch.sin(gamma_t), 0],
-            [torch.sin(gamma_t), torch.cos(gamma_t), 0],
-            [0, 0, 1]
-        ], dtype=torch.float32, )
-        
-        # Combine rotations based on order
-        rotation_matrices = {'x': Rx, 'y': Ry, 'z': Rz}
-        
-        R = torch.eye(3, dtype=torch.float32, )
-        for axis in order.lower():
-            R = torch.matmul(R, rotation_matrices[axis])
-        
-        return R
+
+def df_to_atomzyx(df: pd.DataFrame) -> torch.Tensor:
+    """Extract atom coordinates from DataFrame as torch tensor.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with z, y, x columns
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
+    """
+    return torch.tensor(df[["z", "y", "x"]].values, dtype=torch.float32)
+
+
+def center_structure(
+    df: pd.DataFrame,
+    center_point: tuple[float, float, float] | None = None,
+    use_center_of_mass: bool = False,
+    atom_selection: pd.Series | None = None,
+) -> pd.DataFrame:
+    """
+    Center DataFrame at specified point or origin.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with z, y, x coordinates
+    center_point : tuple[float, float, float] | None
+        Target center point in (z, y, x) order. If None, centers at origin.
+    use_center_of_mass : bool
+        If True, uses center of mass. If False, uses geometric center.
+    atom_selection : pd.Series | None
+        Boolean series to select atoms for center calculation
+
+    Returns
+    -------
+    pd.DataFrame
+        Centered DataFrame
+    """
+    if len(df) == 0:
+        return df.copy()
+
+    atomzyx = df_to_atomzyx(df)
+
+    # Extract selection mask from DataFrame if provided
+    selection_mask = None
+    if atom_selection is not None:
+        selection_mask = torch.tensor(atom_selection.values, dtype=torch.bool)
+
+    # Extract masses from DataFrame if needed for center of mass
+    masses = None
+    if use_center_of_mass:
+        if "atomic_weight" in df.columns:
+            masses = torch.tensor(df["atomic_weight"].values, dtype=torch.float32)
+        elif "atomic_number" in df.columns:
+            masses = torch.tensor(df["atomic_number"].values, dtype=torch.float32)
+
+    centered_atomzyx = center_structure_from_atomzyx(
+        atomzyx, center_point, use_center_of_mass, selection_mask, masses
+    )
+
+    df_result = df.copy()
+    df_result[["z", "y", "x"]] = centered_atomzyx.numpy()
+    return df_result
+
+
+def center_structure_from_atomzyx(
+    atomzyx: torch.Tensor,
+    center_point: tuple[float, float, float] | None = None,
+    use_center_of_mass: bool = False,
+    selection_mask: torch.Tensor | None = None,
+    masses: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Center structure from atomzyx tensor to specified center point.
+
+    Parameters
+    ----------
+    atomzyx : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
+    center_point : tuple[float, float, float] | None
+        Target center point in (z, y, x) order. If None, centers at origin.
+    use_center_of_mass : bool
+        If True, uses center of mass. If False, uses geometric center.
+    selection_mask : torch.Tensor | None
+        Boolean tensor to select atoms for center calculation
+    masses : torch.Tensor | None
+        Tensor of atomic masses for center of mass calculation.
+        Required if use_center_of_mass is True.
+
+    Returns
+    -------
+    torch.Tensor
+        Centered atomzyx tensor
+    """
+    if selection_mask is not None:
+        selected_coords = atomzyx[selection_mask]
+        selected_masses = masses[selection_mask] if masses is not None else None
+    else:
+        selected_coords = atomzyx
+        selected_masses = masses
+
+    if center_point is None:
+        target_center = torch.zeros(3, dtype=torch.float32, device=atomzyx.device)
+    else:
+        target_center = torch.tensor(
+            center_point, dtype=torch.float32, device=atomzyx.device
+        )
+
+    current_center = calculate_center_from_tensors(
+        selected_coords, use_center_of_mass, selected_masses
+    )
+
+    translation = target_center - current_center
+    centered_atomzyx = atomzyx + translation
+
+    return centered_atomzyx
+
+
+def calculate_center_from_tensors(
+    coords: torch.Tensor, use_center_of_mass: bool, masses: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Calculate center from coordinates and masses tensors.
+
+    Parameters
+    ----------
+    coords : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing coordinates
+    use_center_of_mass : bool
+        If True, uses center of mass. If False, uses geometric center.
+    masses : torch.Tensor | None
+        Tensor of atomic masses. Required if use_center_of_mass is True.
+
+    Returns
+    -------
+    torch.Tensor
+        Center point as tensor of shape (3,)
+    """
+    if not use_center_of_mass:
+        return torch.mean(coords, dim=0)
+
+    if masses is None:
+        # Fallback to geometric center if no masses provided
+        warnings.warn(
+            "use_center_of_mass is True but masses is None. "
+            "Falling back to geometric center.",
+            stacklevel=2,
+        )
+        return torch.mean(coords, dim=0)
+
+    # Ensure masses are on same device as coords
+    masses = masses.to(coords.device)
+
+    total_mass = torch.sum(masses)
+    if total_mass == 0:
+        warnings.warn(
+            "use_center_of_mass is True but total_mass is 0. "
+            "Falling back to geometric center.",
+            stacklevel=2,
+        )
+        return torch.mean(coords, dim=0)
+
+    center_of_mass = torch.sum(coords * masses.unsqueeze(1), dim=0) / total_mass
+    return center_of_mass
+
+
+def apply_rotation(
+    df: pd.DataFrame,
+    rotation_matrix: np.ndarray | torch.Tensor,
+    center_point: tuple[float, float, float] | None = None,
+) -> pd.DataFrame:
+    """Apply a rotation matrix to the structure.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with z, y, x coordinates
+    rotation_matrix : np.ndarray | torch.Tensor
+        3x3 rotation matrix (applied to z, y, x coordinates)
+    center_point : tuple[float, float, float] | None
+        Point to rotate around in (z, y, x) order. If None, rotates around origin
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with rotated coordinates
+    """
+    atomzyx = df_to_atomzyx(df)
+    rotated_atomzyx = apply_rotation_to_atomzyx(atomzyx, rotation_matrix, center_point)
+
+    df = df.copy()
+    df[["z", "y", "x"]] = rotated_atomzyx.cpu().numpy()
+    return df
+
+
+def apply_rotation_to_atomzyx(
+    atomzyx: torch.Tensor,
+    rotation_matrix: np.ndarray | torch.Tensor,
+    center_point: tuple[float, float, float] | None = None,
+) -> torch.Tensor:
+    """Apply a rotation matrix to atomzyx tensor.
+
+    Parameters
+    ----------
+    atomzyx : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
+    rotation_matrix : np.ndarray | torch.Tensor
+        3x3 rotation matrix designed for (x, y, z) coordinates.
+    center_point : tuple[float, float, float] | None
+        Point to rotate around in (z, y, x) order. If None, rotates around origin
+
+    Returns
+    -------
+    torch.Tensor
+        Rotated atomzyx tensor
+    """
+    # Convert to torch tensor if needed
+    if isinstance(rotation_matrix, np.ndarray):
+        rotation_matrix = torch.from_numpy(rotation_matrix).float()
+
+    # Ensure rotation_matrix is on same device as atomzyx
+    rotation_matrix = rotation_matrix.to(atomzyx.device)
+
+    # Center coordinates if specified (in zyx)
+    if center_point is not None:
+        center = torch.tensor(center_point, dtype=torch.float32, device=atomzyx.device)
+        atomzyx = atomzyx - center
+
+    # Convert zyx coordinates to xyz for rotation
+    # zyx: [z, y, x] -> xyz: [x, y, z]
+    atomxyz = atomzyx[:, [2, 1, 0]]
+
+    # Apply rotation (rotation_matrix is designed for xyz)
+    rotated_xyz = torch.matmul(atomxyz, rotation_matrix.T)
+
+    # Convert back from xyz to zyx
+    # xyz: [x, y, z] -> zyx: [z, y, x]
+    rotated_atomzyx = rotated_xyz[:, [2, 1, 0]]
+
+    # Translate back if centered
+    if center_point is not None:
+        rotated_atomzyx = rotated_atomzyx + center
+
+    return rotated_atomzyx
+
+
+def create_rotation_matrix_from_euler(
+    angles: torch.Tensor,
+    order: str = "ZYZ",
+    degrees: bool = True,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    """Create rotation matrix from Euler angles using roma.
+
+    Parameters
+    ----------
+    angles : torch.Tensor
+        Euler angles as a tensor.
+        Shape can be (3,) for single rotation or (..., 3) for batch.
+        The last dimension must be 3, corresponding to (alpha, beta, gamma).
+    order : str
+        Rotation order convention (e.g., 'xyz', 'zyx', 'ZYZ', 'zyz').
+        Uppercase letters indicate intrinsic rotations.
+        Lowercase indicate extrinsic rotations.
+    degrees : bool
+        If True, input angles are in degrees. If False, angles are in radians.
+        Default is True (degrees).
+    device : torch.device | None
+        Device on which to perform computation.
+        If None, uses the device of the input tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Rotation matrix.
+        Shape is (3, 3) for single rotation or (..., 3, 3) for batch.
+    """
+    # Move to device if specified
+    if device is not None:
+        angles = angles.to(device)
+    else:
+        device = angles.device
+
+    # Use roma to construct rotation matrix
+    # roma uses uppercase for intrinsic, lowercase for extrinsic rotations
+    rot_mat = roma.euler_to_rotmat(order, angles, degrees=degrees, device=device)
+
+    return rot_mat
+
+
+def apply_translation(
+    df: pd.DataFrame,
+    translation_vector: tuple[float, float, float] | np.ndarray | torch.Tensor,
+) -> pd.DataFrame:
+    """Apply a translation to the structure.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with z, y, x coordinates
+    translation_vector : tuple[float, float, float] | np.ndarray | torch.Tensor
+        Translation vector in (dz, dy, dx) order
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with translated coordinates
+    """
+    atomzyx = df_to_atomzyx(df)
+    translated_atomzyx = apply_translation_to_atomzyx(atomzyx, translation_vector)
+
+    df = df.copy()
+    df[["z", "y", "x"]] = translated_atomzyx.cpu().numpy()
+    return df
+
+
+def apply_translation_to_atomzyx(
+    atomzyx: torch.Tensor,
+    translation_vector: tuple[float, float, float] | np.ndarray | torch.Tensor,
+) -> torch.Tensor:
+    """Apply a translation to atomzyx tensor.
+
+    Parameters
+    ----------
+    atomzyx : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
+    translation_vector : tuple[float, float, float] | np.ndarray | torch.Tensor
+        Translation vector in (dz, dy, dx) order
+
+    Returns
+    -------
+    torch.Tensor
+        Translated atomzyx tensor
+    """
+    if isinstance(translation_vector, (tuple, list)):
+        translation = torch.tensor(
+            translation_vector, dtype=torch.float32, device=atomzyx.device
+        )
+    elif isinstance(translation_vector, np.ndarray):
+        translation = torch.from_numpy(translation_vector).float().to(atomzyx.device)
+    else:
+        translation = translation_vector.to(atomzyx.device)
+
+    return atomzyx + translation
+
+
+def return_atoms_by_radius(
+    df: pd.DataFrame, center_point: tuple[float, float, float], radius: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return atoms inside and outside a specified radius.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with z, y, x coordinates
+    center_point : tuple[float, float, float]
+        Center point for radius calculation in (z, y, x) order
+    radius : float
+        Radius in Angstroms
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        Tuple of (atoms_inside, atoms_outside) DataFrames
+    """
+    if len(df) == 0:
+        empty_df = df.copy()
+        return empty_df, empty_df
+
+    atomzyx = df_to_atomzyx(df)
+    inside_mask, outside_mask = return_atoms_by_radius_from_atomzyx(
+        atomzyx, center_point, radius
+    )
+
+    atoms_inside = df[inside_mask.cpu().numpy()].copy()
+    atoms_outside = df[outside_mask.cpu().numpy()].copy()
+
+    return atoms_inside, atoms_outside
+
+
+def return_atoms_by_radius_from_atomzyx(
+    atomzyx: torch.Tensor, center_point: tuple[float, float, float], radius: float
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return masks for atoms inside and outside a specified radius from atomzyx tensor.
+
+    Parameters
+    ----------
+    atomzyx : torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
+    center_point : tuple[float, float, float]
+        Center point for radius calculation in (z, y, x) order
+    radius : float
+        Radius in Angstroms
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        Tuple of (inside_mask, outside_mask) boolean tensors
+    """
+    center = torch.tensor(center_point, dtype=torch.float32, device=atomzyx.device)
+
+    distances = torch.norm(atomzyx - center, dim=1)
+    inside_mask = distances <= radius
+    outside_mask = distances > radius
+
+    return inside_mask, outside_mask
+
+
+def remove_sidechains(
+    df: pd.DataFrame, keep_backbone_atoms: list[str] | None = None
+) -> pd.DataFrame:
+    """Remove sidechain atoms, keeping only backbone atoms.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with 'atom' column containing atom names
+    keep_backbone_atoms : List[str] | None
+        List of atom names to keep. If None, uses standard protein backbone atoms.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with only backbone atoms
+    """
+    if keep_backbone_atoms is None:
+        # Standard protein backbone atoms
+        keep_backbone_atoms = ["N", "CA", "C", "O", "H", "HA", "OXT"]
+        # Add nucleic acid backbone atoms
+        keep_backbone_atoms.extend(
+            ["P", "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "O2'", "C1'"]
+        )
+
+    # Filter atoms
+    backbone_mask = df["atom"].isin(keep_backbone_atoms)
+
+    return df[backbone_mask].copy()
+
+
+def get_protein_residues() -> set[str]:
+    """Get set of standard and non-standard amino acid residue names.
+
+    Returns
+    -------
+    set[str]
+        Set of amino acid residue names (uppercase).
+    """
+    return {
+        "ALA",
+        "ARG",
+        "ASN",
+        "ASP",
+        "CYS",
+        "GLN",
+        "GLU",
+        "GLY",
+        "HIS",
+        "ILE",
+        "LEU",
+        "LYS",
+        "MET",
+        "PHE",
+        "PRO",
+        "SER",
+        "THR",
+        "TRP",
+        "TYR",
+        "VAL",
+        # Non-standard amino acids
+        "SEC",
+        "PYL",
+        "MSE",
+        "HYP",
+        "NLE",
+    }
+
+
+def get_nucleic_acid_residues() -> set[str]:
+    """Get set of nucleic acid (RNA/DNA) residue names.
+
+    Returns
+    -------
+    set[str]
+        Set of nucleic acid residue names (uppercase).
+    """
+    return {
+        "A",
+        "T",
+        "G",
+        "C",
+        "U",  # Standard bases
+        "DA",
+        "DT",
+        "DG",
+        "DC",  # DNA
+        "ADE",
+        "THY",
+        "GUA",
+        "CYT",
+        "URA",  # Full names
+        # Modified bases
+        "PSU",
+        "I",
+        "M7G",
+        "M2G",
+        "M22G",
+        "YYG",
+        "H2U",
+        "OMC",
+        "OMG",
+    }
+
+
+def separate_protein_rna(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Separate protein and RNA/DNA components.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame with 'residue' column
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        (protein_df, nucleic_acid_df)
+    """
+    amino_acids = get_protein_residues()
+    nucleic_acids = get_nucleic_acid_residues()
+
+    # Separate based on residue names
+    protein_mask = df["residue"].isin(amino_acids)
+    nucleic_mask = df["residue"].isin(nucleic_acids)
+
+    protein_df = df[protein_mask].copy()
+    nucleic_df = df[nucleic_mask].copy()
+
+    # Handle remaining residues (warn if significant amount)
+    remaining = df[~(protein_mask | nucleic_mask)]
+    if len(remaining) > 0:
+        warnings.warn(
+            f"Found {len(remaining)} atoms in {remaining['residue'].nunique()} "
+            f"unrecognized residue types: {set(remaining['residue'].unique())}",
+            stacklevel=2,
+        )
+
+    return protein_df, nucleic_df

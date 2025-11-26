@@ -1,4 +1,8 @@
+"""Module for loading molecular structures with bond information."""
+
 from importlib.metadata import PackageNotFoundError, version
+
+from .load_structure import load_model_bonds
 
 try:
     __version__ = version("torch-structure-manipulation")
@@ -7,12 +11,7 @@ except PackageNotFoundError:
 __author__ = "Davide Torre"
 __email__ = "davidetorre99@gmail.com"
 
-from .fast_cif_parser import FastCIFBondParser
-from .fast_atom_environments import FastAtomEnvironmentMapper
-from .structure_transforms import StructureTransforms
 
 __all__ = [
-    "FastCIFBondParser",
-    "FastAtomEnvironmentMapper",
-    "StructureTransforms",
+    "load_model_bonds",
 ]

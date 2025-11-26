@@ -1,0 +1,6 @@
+[files]
+extend-exclude = [
+    "src/torch_structure_manipulation/bonding_data.json",
+    "src/torch_structure_manipulation/load_structure.py",   
+    "src/torch_structure_manipulation/structure_transforms.py",       
+]
