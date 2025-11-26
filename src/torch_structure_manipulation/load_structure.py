@@ -784,30 +784,8 @@ def determine_molecule_type(df: pd.DataFrame) -> str:
     str
         'protein' or 'rna' or 'rna+protein'.
     """
-    protein_residues = {
-        "ALA",
-        "ARG",
-        "ASN",
-        "ASP",
-        "CYS",
-        "GLN",
-        "GLU",
-        "GLY",
-        "HIS",
-        "ILE",
-        "LEU",
-        "LYS",
-        "MET",
-        "PHE",
-        "PRO",
-        "SER",
-        "THR",
-        "TRP",
-        "TYR",
-        "VAL",
-    }
-
-    rna_residues = {"A", "U", "G", "C", "DA", "DT", "DG", "DC"}
+    protein_residues = get_protein_residues()
+    rna_residues = get_nucleic_acid_residues()
 
     unique_residues = set(df["residue"].str.upper().unique())
 
@@ -820,7 +798,7 @@ def determine_molecule_type(df: pd.DataFrame) -> str:
         return "protein"
     if has_rna:
         return "rna"
-    # Default to protein if unknown
+        # Default to protein if unknown
     return "protein"
 
 
@@ -840,30 +818,8 @@ def get_atom_molecule_types(df: pd.DataFrame) -> list[str]:
     list[str]
         List of molecule types, one per atom. Each is either 'rna' or 'protein'.
     """
-    protein_residues = {
-        "ALA",
-        "ARG",
-        "ASN",
-        "ASP",
-        "CYS",
-        "GLN",
-        "GLU",
-        "GLY",
-        "HIS",
-        "ILE",
-        "LEU",
-        "LYS",
-        "MET",
-        "PHE",
-        "PRO",
-        "SER",
-        "THR",
-        "TRP",
-        "TYR",
-        "VAL",
-    }
-
-    rna_residues = {"A", "U", "G", "C", "DA", "DT", "DG", "DC"}
+    protein_residues = get_protein_residues()
+    rna_residues = get_nucleic_acid_residues()
 
     molecule_types = []
     for _, row in df.iterrows():
