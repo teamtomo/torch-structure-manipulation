@@ -14,8 +14,7 @@ A python package to extract bonding environments from cif/pdb files and perform 
 ### Loading a structure
 
 ```python
-from torch_structure_manipulation import load_structure, StructureLoadOptions
-from torch_structure_manipulation.structure_transforms import return_atoms_by_radius
+from torch_structure_manipulation.structure_loader import load_structure, StructureLoadOptions
 
 # Load structure with default options (centered, with bonding info)
 df = load_structure('structure.cif')
