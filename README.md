@@ -6,29 +6,38 @@
 [![CI](https://github.com/teamtomo/torch-structure-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/teamtomo/torch-structure-manipulation/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/teamtomo/torch-structure-manipulation/branch/main/graph/badge.svg)](https://codecov.io/gh/teamtomo/torch-structure-manipulation)
 
-A python package to extract bonding environments from cif files and perform a few basic structure transformation (centering at a desired point, translation, rotation, removing atoms within/outisde a radius, removing sidechains, separating proteins and RNA) 
+A python package to extract bonding environments from cif files and perform basic structure transformation (centering at a desired point, translation, rotation, removing atoms within/outisde a radius, removing sidechains, separating proteins and RNA).
 
-## Development
 
-The easiest way to get started is to use the [github cli](https://cli.github.com)
-and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+## Basix example usage
 
-```sh
-gh repo fork teamtomo/torch-structure-manipulation --clone
-# or just
-# gh repo clone teamtomo/torch-structure-manipulation
-cd torch-structure-manipulation
-uv sync
+```python
+import mmdf
+from torch_structure_manipulation import FastCIFBondParser, FastAtomEnvironmentMapper
+
+# Read structure
+mmdf_df = mmdf.read('structure.cif')
+
+# Extract covalent bonds
+parser = FastCIFBondParser()
+bonds_df = parser.extract_bonds_for_mmdf('structure.cif', mmdf_df)
+
+# Map atom environments
+env_mapper = FastAtomEnvironmentMapper()
+mmdf_with_envs = env_mapper.map_environments(mmdf_df, bonds_df)
 ```
 
-Run tests:
+## Output
 
-```sh
-uv run pytest
-```
+- Original mmdf DataFrame with added environment columns
+- Edge index dataframe for all bonding
+- Bonding environment
 
-Lint files:
+## Requirements
 
-```sh
-uv run pre-commit run --all-files
-```
+- Python 3.10+
+- PyTorch
+- pandas
+- gemmi
+- mmdf 
+

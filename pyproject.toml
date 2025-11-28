@@ -19,7 +19,7 @@ name = "torch-structure-manipulation"
 dynamic = ["version"]
 description = "A python package to extract bonding environments from cif files and perform a few basic structure transformation (centering at a desired point, translation, rotation, removing atoms within/outisde a radius, removing sidechains, separating proteins and RNA) "
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "BSD-3-Clause" }
 authors = [{ name = "Davide Torre", email = "davidetorre99@gmail.com" }]
 # https://pypi.org/classifiers/
@@ -27,7 +27,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3",    
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -36,7 +35,14 @@ classifiers = [
     "Typing :: Typed",
 ]
 # add your package dependencies here
-dependencies = []
+dependencies = [
+    "torch",
+    "pandas", 
+    "numpy",
+    "gemmi",
+    "mmdf",
+    "roma",
+]
 
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 # add dependencies for "extra" features here.  Not dev dependencies.
@@ -76,7 +82,7 @@ torch-structure-manipulation = { workspace = true }
 # https://docs.astral.sh/ruff
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 src = ["src"]
 fix = true
 # unsafe-fixes = true
