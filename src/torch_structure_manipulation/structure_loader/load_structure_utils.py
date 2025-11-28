@@ -7,8 +7,7 @@ import mmdf
 import pandas as pd
 import torch
 
-from .structure_transforms import (
-    center_structure_from_atomzyx,
+from torch_structure_manipulation.structure_transforms import (
     get_nucleic_acid_residues,
     get_protein_residues,
 )
@@ -54,42 +53,33 @@ def load_df(file_path: str | pathlib.Path) -> pd.DataFrame:
     return mmdf.read(file_path)
 
 
-def load_model_bonds(
-    file_path: str | pathlib.Path,
-    center_atoms: bool = True,
-    center_atoms_by_mass: bool = False,
-    center_point: tuple[float, float, float] | None = None,
-    include_hydrogens: bool = True,
-    load_bonded_environment: bool = True,
-) -> tuple[torch.Tensor, list[str], torch.Tensor, list[str] | None, list[str] | None]:
-    """Pdb/cif file to atom coordinates, ids, B factors, bonded atoms, molecule types.
-
-    Loads a pdb from `file_path` and returns the atom coordinates (in Angstroms),
-    atom ids as a list of strings, B factors (in Angstroms^2), bonded atom ids
-    in format like "C(HHCN)", and molecule type per atom ('protein' or 'rna').
-
-    O(C) bonds are categorized as:
-    - O(C, carboxyl) for carboxyl groups (sidechain in ASP/GLU, C-terminal OXT)
-    - O(C, amide) for backbone O in peptide bonds
-    - O(C) for all other O(C) bonds
+def get_zyx_coords(df: pd.DataFrame) -> torch.Tensor:
+    """
+    Extract atom coordinates from DataFrame as torch tensor.
 
     Parameters
     ----------
-    file_path : str | pathlib.Path
-        Path to the pdb file.
-    center_atoms : bool
-        Whether to center the atoms. Default is True.
-    center_atoms_by_mass : bool
-        If True, uses center of mass. If False, uses geometric center.
-        Default is False (geometric center).
-    center_point : tuple[float, float, float] | None
-        Target center point. If None, centers at origin. Default is None.
-    include_hydrogens : bool
-        Whether to include hydrogen atoms in bonded atom ids. Default is True.
-        If False, hydrogen atoms are excluded from the bonded element lists.
-    load_bonded_environment : bool
-        Whether to compute bonded atom ids and molecule types. Default is True.
-        If False, returns None for bonded_id and molecule_type.
+    df : pd.DataFrame
+        DataFrame with z, y, x coordinates.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape (n_atoms, 3) containing z, y, x coordinates.
+    """
+    return torch.tensor(df[["z", "y", "x"]].to_numpy()).float()
+
+
+def df_params_to_tensors(
+    df: pd.DataFrame,
+) -> tuple[torch.Tensor, list[str], torch.Tensor, list[str] | None, list[str] | None]:
+    """
+    Pdb/cif file to atom coordinates, ids, B factors, bonded atoms, molecule types.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Structure DataFrame.
 
     Returns
     -------
@@ -97,42 +87,16 @@ def load_model_bonds(
         Atom coordinates, atom ids, B factors, bonded atom ids (or None),
         molecule type per atom (or None).
     """
-    df = load_df(file_path)
-    atom_zyx = torch.tensor(df[["z", "y", "x"]].to_numpy()).float()  # (n_atoms, 3)
-
-    if center_atoms:
-        # Extract masses if needed for center of mass
-        masses = None
-        if center_atoms_by_mass:
-            if "atomic_weight" in df.columns:
-                masses = torch.tensor(df["atomic_weight"].values, dtype=torch.float32)
-            elif "atomic_number" in df.columns:
-                masses = torch.tensor(df["atomic_number"].values, dtype=torch.float32)
-
-        # Center using structure_transforms function (now uses z, y, x order)
-        atom_zyx = center_structure_from_atomzyx(
-            atom_zyx,
-            center_point=center_point,
-            use_center_of_mass=center_atoms_by_mass,
-            masses=masses,
-        )
-
+    atom_zyx = get_zyx_coords(df)
     atom_id = df["element"].str.upper().tolist()
     atom_b_factor = torch.tensor(df["b_isotropic"].to_numpy()).float()
-
-    if load_bonded_environment:
-        # Get bonded atom ids and molecule types using lookup tables
-        atom_bonded_id, molecule_type = _get_bonded_atom_ids_and_molecule_types(
-            df=df, include_hydrogens=include_hydrogens
-        )
-    else:
-        atom_bonded_id = None
-        molecule_type = None
+    atom_bonded_id = df["bonded_environment"].tolist()
+    molecule_type = df["molecule_type"].tolist()
 
     return atom_zyx, atom_id, atom_b_factor, atom_bonded_id, molecule_type
 
 
-def _get_bonded_atom_ids_and_molecule_types(
+def get_bonded_atom_ids_and_molecule_types(
     df: pd.DataFrame, include_hydrogens: bool = True
 ) -> tuple[list[str], list[str]]:
     """

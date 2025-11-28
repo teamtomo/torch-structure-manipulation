@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .load_structure import load_model_bonds
+from .structure_loader import load_structure
 
 try:
     __version__ = version("torch-structure-manipulation")
@@ -13,5 +13,5 @@ __email__ = "davidetorre99@gmail.com"
 
 
 __all__ = [
-    "load_model_bonds",
+    "load_structure",
 ]
