@@ -3,9 +3,7 @@
 import json
 import pathlib
 
-import mmdf
 import pandas as pd
-import torch
 
 from torch_structure_manipulation.structure_transforms import (
     get_nucleic_acid_residues,
@@ -34,66 +32,6 @@ def _load_bonding_data() -> tuple[
 
 # Load bonding dictionaries from JSON
 _PROTEIN_BONDING, _RNA_BONDING = _load_bonding_data()
-
-
-def load_df(file_path: str | pathlib.Path) -> pd.DataFrame:
-    """
-    Load a pdb/mmcif file into a pandas DataFrame.
-
-    Parameters
-    ----------
-    file_path : str | pathlib.Path
-        Path to the pdb file.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame read from pdb/mmcif file.
-    """
-    return mmdf.read(file_path)
-
-
-def get_zyx_coords(df: pd.DataFrame) -> torch.Tensor:
-    """
-    Extract atom coordinates from DataFrame as torch tensor.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with z, y, x coordinates.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape (n_atoms, 3) containing z, y, x coordinates.
-    """
-    return torch.tensor(df[["z", "y", "x"]].to_numpy()).float()
-
-
-def df_params_to_tensors(
-    df: pd.DataFrame,
-) -> tuple[torch.Tensor, list[str], torch.Tensor, list[str] | None, list[str] | None]:
-    """
-    Pdb/cif file to atom coordinates, ids, B factors, bonded atoms, molecule types.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Structure DataFrame.
-
-    Returns
-    -------
-    tuple[torch.Tensor, list[str], torch.Tensor, list[str] | None, list[str] | None]
-        Atom coordinates, atom ids, B factors, bonded atom ids (or None),
-        molecule type per atom (or None).
-    """
-    atom_zyx = get_zyx_coords(df)
-    atom_id = df["element"].str.upper().tolist()
-    atom_b_factor = torch.tensor(df["b_isotropic"].to_numpy()).float()
-    atom_bonded_id = df["bonded_environment"].tolist()
-    molecule_type = df["molecule_type"].tolist()
-
-    return atom_zyx, atom_id, atom_b_factor, atom_bonded_id, molecule_type
 
 
 def get_bonded_atom_ids_and_molecule_types(
