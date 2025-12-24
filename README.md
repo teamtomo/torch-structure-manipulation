@@ -14,20 +14,18 @@ A python package to extract bonding environments from cif/pdb files and perform 
 ### Loading a structure
 
 ```python
-from torch_structure_manipulation.structure_loader import load_structure, StructureLoadOptions
+import mmdf
+from torch_structure_manipulation.structure_loader import load_structure
 
-# Load structure with default options (centered, with bonding info)
-df = load_structure('structure.cif')
+# First, load the structure file using mmdf
+df = mmdf.read('structure.cif')
 
-# Or customize loading options
-options = StructureLoadOptions(
-    center_atoms=True,
-    center_atoms_by_mass=False,  # Use geometric center
-    center_point=(0.0, 0.0, 0.0),  # Center at origin
-    include_hydrogens=True,
-    load_bonded_environment=True,
-)
-df = load_structure('structure.cif', options=options)
+# Then add bonding information
+df = load_structure(df, include_hydrogens=True)
+
+# Optionally center the structure
+from torch_structure_manipulation.structure_transforms import center_structure
+df = center_structure(df, center_point=(0.0, 0.0, 0.0), use_center_of_mass=False, zyx=True)
 
 # The DataFrame includes original mmdf columns plus:
 print(f"Bonded environments: {df['bonded_environment'].head()}")
@@ -97,5 +95,7 @@ protein_df, rna_df = separate_protein_rna(df)
 - PyTorch
 - pandas
 - gemmi
-- mmdf 
+- roma
+
+Note: `mmdf` is required for loading structure files but is not a core dependency. Install it separately or as part of dev dependencies for testing.
 
