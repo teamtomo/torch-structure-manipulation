@@ -3,11 +3,11 @@
 from .center_molecule import (
     calculate_center_from_tensors,
     center_structure,
-    center_structure_from_atomzyx,
+    center_structure_from_coords,
 )
 from .rotate_molecule import (
     apply_rotation,
-    apply_rotation_to_atomzyx,
+    apply_rotation_to_coords,
     create_rotation_matrix_from_euler,
 )
 from .select_atoms import (
@@ -18,7 +18,7 @@ from .select_atoms import (
 )
 from .translate_molecule import (
     apply_translation,
-    apply_translation_to_atomzyx,
+    apply_translation_to_coords,
 )
 from .utils import (
     df_to_atomxyz,
@@ -29,13 +29,13 @@ from .utils import (
 
 __all__ = [
     "apply_rotation",
-    "apply_rotation_to_atomzyx",
+    "apply_rotation_to_coords",
     "apply_translation",
-    "apply_translation_to_atomzyx",
+    "apply_translation_to_coords",
     "ball_query_atoms",
     "calculate_center_from_tensors",
     "center_structure",
-    "center_structure_from_atomzyx",
+    "center_structure_from_coords",
     "create_rotation_matrix_from_euler",
     "df_to_atomxyz",
     "df_to_atomzyx",

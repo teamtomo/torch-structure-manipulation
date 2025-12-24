@@ -42,12 +42,15 @@ print(f"Molecule types: {df['molecule_type'].unique()}")
 
 ### Structure transformations
 
+All transformation functions support both `zyx` (z, y, x) and `xyz` (x, y, z) coordinate systems via the `zyx` parameter (default: `True` for zyx). When `zyx=True`, DataFrames must have `z`, `y`, `x` columns and coordinate tuples are in (z, y, x) order. When `zyx=False`, DataFrames must have `x`, `y`, `z` columns and coordinate tuples are in (x, y, z) order.
+
 ```python
 from torch_structure_manipulation.structure_transforms import (
     find_atoms_in_ball,
     ball_query_atoms,
     center_structure,
     apply_rotation,
+    apply_translation,
     separate_protein_rna,
 )
 
@@ -67,10 +70,22 @@ inside_mask = ball_query_atoms(df, center=(0.0, 0.0, 0.0), radius=50.0, zyx=True
 print(f"Atoms inside radius: {len(inside)}")
 print(f"Atoms outside radius: {len(outside)}")
 
-# Center structure at a specific point
+# Center structure at a specific point (zyx coordinates, default)
 centered_df = center_structure(
-    df, center_point=(10.0, 20.0, 30.0), use_center_of_mass=False
+    df, center_point=(10.0, 20.0, 30.0), use_center_of_mass=False, zyx=True
 )
+
+# Apply translation (zyx coordinates, default)
+# Translation vector in (dz, dy, dx) order when zyx=True
+translated_df = apply_translation(df, translation=(1.0, 2.0, 3.0), zyx=True)
+
+# Apply rotation (zyx coordinates, default)
+# Rotation matrix is designed for (x, y, z) coordinates
+import torch
+from torch_structure_manipulation.structure_transforms import create_rotation_matrix_from_euler
+angles = torch.tensor([0.0, 0.0, 90.0])
+rotation_matrix = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
+rotated_df = apply_rotation(df, rotation_matrix, zyx=True)
 
 # Separate protein and RNA components
 protein_df, rna_df = separate_protein_rna(df)
