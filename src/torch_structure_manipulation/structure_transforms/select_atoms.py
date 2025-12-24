@@ -5,22 +5,35 @@ import warnings
 import pandas as pd
 import torch
 
-from .utils import df_to_atomzyx, get_nucleic_acid_residues, get_protein_residues
+from .utils import (
+    df_to_atomxyz,
+    df_to_atomzyx,
+    get_nucleic_acid_residues,
+    get_protein_residues,
+)
 
 
-def return_atoms_by_radius(
-    df: pd.DataFrame, center_point: tuple[float, float, float], radius: float
+def find_atoms_in_ball(
+    df: pd.DataFrame,
+    center: tuple[float, float, float],
+    radius: float,
+    zyx: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return atoms inside and outside a specified radius.
+    """Find atoms inside and outside a ball (sphere) of specified radius.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Structure DataFrame with z, y, x coordinates
-    center_point : tuple[float, float, float]
-        Center point for radius calculation in (z, y, x) order
+        Structure DataFrame with coordinate columns (z, y, x if zyx=True, or
+        x, y, z if zyx=False)
+    center : tuple[float, float, float]
+        Center point for ball query. Order depends on zyx parameter:
+        - If zyx=True: (z, y, x) order
+        - If zyx=False: (x, y, z) order
     radius : float
         Radius in Angstroms
+    zyx : bool, default=True
+        If True, coordinates are in (z, y, x) order. If False, in (x, y, z) order.
 
     Returns
     -------
@@ -31,10 +44,8 @@ def return_atoms_by_radius(
         empty_df = df.copy()
         return empty_df, empty_df
 
-    atomzyx = df_to_atomzyx(df)
-    inside_mask, outside_mask = return_atoms_by_radius_from_atomzyx(
-        atomzyx, center_point, radius
-    )
+    inside_mask = ball_query_atoms(df, center, radius, zyx=zyx)
+    outside_mask = ~inside_mask
 
     atoms_inside = df[inside_mask.cpu().numpy()].copy()
     atoms_outside = df[outside_mask.cpu().numpy()].copy()
@@ -42,32 +53,57 @@ def return_atoms_by_radius(
     return atoms_inside, atoms_outside
 
 
-def return_atoms_by_radius_from_atomzyx(
-    atomzyx: torch.Tensor, center_point: tuple[float, float, float], radius: float
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return masks for atoms inside and outside a specified radius from atomzyx tensor.
+def ball_query_atoms(
+    coordinates: torch.Tensor | pd.DataFrame,
+    center: tuple[float, float, float],
+    radius: float,
+    zyx: bool = True,
+) -> torch.Tensor:
+    """Query atoms within a ball (sphere) and return a boolean mask.
 
     Parameters
     ----------
-    atomzyx : torch.Tensor
-        Tensor of shape (n_atoms, 3) containing z, y, x coordinates
-    center_point : tuple[float, float, float]
-        Center point for radius calculation in (z, y, x) order
+    coordinates : torch.Tensor | pd.DataFrame
+        Either a tensor of shape (n_atoms, 3) with coordinates, or a DataFrame
+        with coordinate columns. If DataFrame, columns depend on zyx parameter:
+        - If zyx=True: DataFrame must have z, y, x columns
+        - If zyx=False: DataFrame must have x, y, z columns
+    center : tuple[float, float, float]
+        Center point for ball query. Order depends on zyx parameter:
+        - If zyx=True: (z, y, x) order
+        - If zyx=False: (x, y, z) order
     radius : float
         Radius in Angstroms
+    zyx : bool, default=True
+        If True, coordinates are in (z, y, x) order. If False, in (x, y, z) order.
+        Coordinates are used as-is without reordering.
 
     Returns
     -------
-    tuple[torch.Tensor, torch.Tensor]
-        Tuple of (inside_mask, outside_mask) boolean tensors
+    torch.Tensor
+        Boolean tensor of shape (n_atoms,) indicating which atoms are inside the ball
     """
-    center = torch.tensor(center_point, dtype=torch.float32, device=atomzyx.device)
+    # Extract coordinates from DataFrame if needed
+    if isinstance(coordinates, pd.DataFrame):
+        if zyx:
+            # DataFrame has z, y, x columns - use as-is
+            coords = df_to_atomzyx(coordinates)
+        else:
+            # DataFrame has x, y, z columns - use as-is
+            coords = df_to_atomxyz(coordinates)
+    else:
+        # Tensor is provided - assume it's already in the correct order based on zyx
+        coords = coordinates
 
-    distances = torch.norm(atomzyx - center, dim=1)
+    # Ensure coordinates are on the same device
+    device = coords.device
+    center_tensor = torch.tensor(center, dtype=torch.float32, device=device)
+
+    # Calculate distances
+    distances = torch.norm(coords - center_tensor, dim=1)
     inside_mask = distances <= radius
-    outside_mask = distances > radius
 
-    return inside_mask, outside_mask
+    return inside_mask
 
 
 def remove_sidechains(

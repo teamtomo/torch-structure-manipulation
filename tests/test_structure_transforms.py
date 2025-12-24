@@ -7,19 +7,19 @@ import torch
 
 from torch_structure_manipulation.structure_transforms import (
     apply_rotation,
-    apply_rotation_to_atomzyx,
+    apply_rotation_to_coords,
     apply_translation,
-    apply_translation_to_atomzyx,
+    apply_translation_to_coords,
+    ball_query_atoms,
     calculate_center_from_tensors,
     center_structure,
-    center_structure_from_atomzyx,
+    center_structure_from_coords,
     create_rotation_matrix_from_euler,
     df_to_atomzyx,
+    find_atoms_in_ball,
     get_nucleic_acid_residues,
     get_protein_residues,
     remove_sidechains,
-    return_atoms_by_radius,
-    return_atoms_by_radius_from_atomzyx,
     separate_protein_rna,
 )
 
@@ -44,8 +44,8 @@ class TestDfToAtomzyx:
 class TestCenterStructure:
     """Tests for center_structure functions."""
 
-    def test_center_at_origin(self):
-        """Test centering at origin."""
+    def test_center_at_origin_zyx(self):
+        """Test centering at origin with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [1.0, 2.0, 3.0],
@@ -53,13 +53,27 @@ class TestCenterStructure:
                 "x": [7.0, 8.0, 9.0],
             }
         )
-        result = center_structure(df)
+        result = center_structure(df, zyx=True)
         centered_coords = result[["z", "y", "x"]].values
         # Mean should be at origin
         assert np.allclose(centered_coords.mean(axis=0), [0, 0, 0])
 
-    def test_center_at_specific_point(self):
-        """Test centering at a specific point."""
+    def test_center_at_origin_xyz(self):
+        """Test centering at origin with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0],
+                "y": [4.0, 5.0, 6.0],
+                "z": [7.0, 8.0, 9.0],
+            }
+        )
+        result = center_structure(df, zyx=False)
+        centered_coords = result[["x", "y", "z"]].values
+        # Mean should be at origin
+        assert np.allclose(centered_coords.mean(axis=0), [0, 0, 0])
+
+    def test_center_at_specific_point_zyx(self):
+        """Test centering at a specific point with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [1.0, 2.0, 3.0],
@@ -68,22 +82,44 @@ class TestCenterStructure:
             }
         )
         center_point = (2.0, 5.0, 8.0)  # (z, y, x)
-        result = center_structure(df, center_point=center_point)
+        result = center_structure(df, center_point=center_point, zyx=True)
         centered_coords = result[["z", "y", "x"]].values
         # Mean should be at center_point
         assert np.allclose(centered_coords.mean(axis=0), center_point)
 
-    def test_center_structure_from_atomzyx(self):
-        """Test centering from atomzyx tensor."""
-        atomzyx = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
-        result = center_structure_from_atomzyx(atomzyx)
+    def test_center_at_specific_point_xyz(self):
+        """Test centering at a specific point with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [1.0, 2.0, 3.0],
+                "y": [4.0, 5.0, 6.0],
+                "z": [7.0, 8.0, 9.0],
+            }
+        )
+        center_point = (2.0, 5.0, 8.0)  # (x, y, z)
+        result = center_structure(df, center_point=center_point, zyx=False)
+        centered_coords = result[["x", "y", "z"]].values
+        # Mean should be at center_point
+        assert np.allclose(centered_coords.mean(axis=0), center_point)
+
+    def test_center_structure_from_coords_zyx(self):
+        """Test centering from coordinate tensor with zyx coordinates."""
+        coords = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+        result = center_structure_from_coords(coords, zyx=True)
+        # Mean should be at origin
+        assert torch.allclose(result.mean(dim=0), torch.zeros(3))
+
+    def test_center_structure_from_coords_xyz(self):
+        """Test centering from coordinate tensor with xyz coordinates."""
+        coords = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+        result = center_structure_from_coords(coords, zyx=False)
         # Mean should be at origin
         assert torch.allclose(result.mean(dim=0), torch.zeros(3))
 
     def test_empty_dataframe(self):
         """Test handling of empty DataFrame."""
         df = pd.DataFrame(columns=["z", "y", "x"])
-        result = center_structure(df)
+        result = center_structure(df, zyx=True)
         assert len(result) == 0
 
 
@@ -120,31 +156,56 @@ class TestRotation:
         expected = torch.tensor([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
         assert torch.allclose(R, expected, atol=1e-6)
 
-    def test_apply_rotation_to_atomzyx(self):
-        """Test rotation application to atomzyx coordinates."""
+    def test_apply_rotation_to_coords_zyx(self):
+        """Test rotation application to zyx coordinates."""
         # Create 90-degree rotation around z-axis
         angles = torch.tensor([0.0, 0.0, 90.0])
         R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
         # Point at [0, 1, 0] in zyx (z=0, y=1, x=0)
         # In xyz: [0, 1, 0], after 90 deg z rotation: [-1, 0, 0]
         # Back to zyx: [0, 0, -1]
-        atomzyx = torch.tensor([[0.0, 1.0, 0.0]])
-        rotated = apply_rotation_to_atomzyx(atomzyx, R)
+        coords = torch.tensor([[0.0, 1.0, 0.0]])
+        rotated = apply_rotation_to_coords(coords, R, zyx=True)
         expected = torch.tensor([[0.0, 0.0, -1.0]])
         assert torch.allclose(rotated, expected, atol=1e-5)
 
-    def test_apply_rotation_with_center(self):
-        """Test rotation around a center point."""
+    def test_apply_rotation_to_coords_xyz(self):
+        """Test rotation application to xyz coordinates."""
+        # Create 90-degree rotation around z-axis
         angles = torch.tensor([0.0, 0.0, 90.0])
         R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
-        atomzyx = torch.tensor([[1.0, 1.0, 0.0]])
-        center_point = (1.0, 1.0, 0.0)  # Rotate around itself
-        rotated = apply_rotation_to_atomzyx(atomzyx, R, center_point=center_point)
-        # Should return to original position
-        assert torch.allclose(rotated, atomzyx, atol=1e-5)
+        # Point at [0, 1, 0] in xyz, after 90 deg z rotation: [-1, 0, 0]
+        coords = torch.tensor([[0.0, 1.0, 0.0]])
+        rotated = apply_rotation_to_coords(coords, R, zyx=False)
+        expected = torch.tensor([[-1.0, 0.0, 0.0]])
+        assert torch.allclose(rotated, expected, atol=1e-5)
 
-    def test_apply_rotation_dataframe(self):
-        """Test rotation on DataFrame."""
+    def test_apply_rotation_with_center_zyx(self):
+        """Test rotation around a center point with zyx coordinates."""
+        angles = torch.tensor([0.0, 0.0, 90.0])
+        R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
+        coords = torch.tensor([[1.0, 1.0, 0.0]])
+        center_point = (1.0, 1.0, 0.0)  # Rotate around itself (z, y, x)
+        rotated = apply_rotation_to_coords(
+            coords, R, center_point=center_point, zyx=True
+        )
+        # Should return to original position
+        assert torch.allclose(rotated, coords, atol=1e-5)
+
+    def test_apply_rotation_with_center_xyz(self):
+        """Test rotation around a center point with xyz coordinates."""
+        angles = torch.tensor([0.0, 0.0, 90.0])
+        R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
+        coords = torch.tensor([[1.0, 1.0, 0.0]])
+        center_point = (1.0, 1.0, 0.0)  # Rotate around itself (x, y, z)
+        rotated = apply_rotation_to_coords(
+            coords, R, center_point=center_point, zyx=False
+        )
+        # Should return to original position
+        assert torch.allclose(rotated, coords, atol=1e-5)
+
+    def test_apply_rotation_dataframe_zyx(self):
+        """Test rotation on DataFrame with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [0.0, 1.0],
@@ -154,26 +215,43 @@ class TestRotation:
         )
         angles = torch.tensor([0.0, 0.0, 90.0])
         R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
-        result = apply_rotation(df, R)
+        result = apply_rotation(df, R, zyx=True)
         # Check that coordinates changed
         original_coords = df[["z", "y", "x"]].values
         rotated_coords = result[["z", "y", "x"]].values
+        assert not np.allclose(rotated_coords, original_coords)
+
+    def test_apply_rotation_dataframe_xyz(self):
+        """Test rotation on DataFrame with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [0.0, 0.0],
+                "y": [1.0, 0.0],
+                "z": [0.0, 1.0],
+            }
+        )
+        angles = torch.tensor([0.0, 0.0, 90.0])
+        R = create_rotation_matrix_from_euler(angles, order="ZYZ", degrees=True)
+        result = apply_rotation(df, R, zyx=False)
+        # Check that coordinates changed
+        original_coords = df[["x", "y", "z"]].values
+        rotated_coords = result[["x", "y", "z"]].values
         assert not np.allclose(rotated_coords, original_coords)
 
 
 class TestTranslation:
     """Tests for translation functions."""
 
-    def test_apply_translation_to_atomzyx(self):
-        """Test translation of atomzyx coordinates."""
-        atomzyx = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        translation = (1.0, 2.0, 3.0)  # (dz, dy, dx)
-        result = apply_translation_to_atomzyx(atomzyx, translation)
+    def test_apply_translation_to_coords(self):
+        """Test translation of coordinate tensor."""
+        coords = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        translation = (1.0, 2.0, 3.0)  # Order matches coordinate order
+        result = apply_translation_to_coords(coords, translation)
         expected = torch.tensor([[2.0, 4.0, 6.0], [5.0, 7.0, 9.0]])
         assert torch.allclose(result, expected)
 
-    def test_apply_translation_dataframe(self):
-        """Test translation on DataFrame."""
+    def test_apply_translation_dataframe_zyx(self):
+        """Test translation on DataFrame with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [1.0, 2.0],
@@ -182,31 +260,76 @@ class TestTranslation:
             }
         )
         translation = (1.0, 1.0, 1.0)  # (dz, dy, dx)
-        result = apply_translation(df, translation)
+        result = apply_translation(df, translation, zyx=True)
         expected = df[["z", "y", "x"]].values + np.array([1.0, 1.0, 1.0])
         result_coords = result[["z", "y", "x"]].values
         assert np.allclose(result_coords, expected)
 
+    def test_apply_translation_dataframe_xyz(self):
+        """Test translation on DataFrame with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [1.0, 2.0],
+                "y": [3.0, 4.0],
+                "z": [5.0, 6.0],
+            }
+        )
+        translation = (1.0, 1.0, 1.0)  # (dx, dy, dz)
+        result = apply_translation(df, translation, zyx=False)
+        expected = df[["x", "y", "z"]].values + np.array([1.0, 1.0, 1.0])
+        result_coords = result[["x", "y", "z"]].values
+        assert np.allclose(result_coords, expected)
 
-class TestReturnAtomsByRadius:
-    """Tests for return_atoms_by_radius functions."""
 
-    def test_return_atoms_by_radius_from_atomzyx(self):
-        """Test radius filtering from atomzyx tensor."""
+class TestBallQueryAtoms:
+    """Tests for ball_query_atoms function."""
+
+    def test_ball_query_atoms_tensor_zyx(self):
+        """Test ball query from tensor with zyx coordinates."""
         atomzyx = torch.tensor(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]
         )
-        center_point = (0.0, 0.0, 0.0)  # (z, y, x)
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
         radius = 1.5
-        inside_mask, outside_mask = return_atoms_by_radius_from_atomzyx(
-            atomzyx, center_point, radius
-        )
+        inside_mask = ball_query_atoms(atomzyx, center, radius, zyx=True)
         # First two points should be inside, last two outside
         assert inside_mask.tolist() == [True, True, False, False]
-        assert outside_mask.tolist() == [False, False, True, True]
 
-    def test_return_atoms_by_radius_dataframe(self):
-        """Test radius filtering on DataFrame."""
+    def test_ball_query_atoms_dataframe_zyx(self):
+        """Test ball query from DataFrame with zyx coordinates."""
+        df = pd.DataFrame(
+            {
+                "z": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "x": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
+        radius = 1.5
+        inside_mask = ball_query_atoms(df, center, radius, zyx=True)
+        assert inside_mask.tolist() == [True, True, False, False]
+
+    def test_ball_query_atoms_dataframe_xyz(self):
+        """Test ball query from DataFrame with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "z": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (x, y, z) when zyx=False
+        radius = 1.5
+        inside_mask = ball_query_atoms(df, center, radius, zyx=False)
+        # First two points should be inside, last two outside
+        assert inside_mask.tolist() == [True, True, False, False]
+
+
+class TestFindAtomsInBall:
+    """Tests for find_atoms_in_ball function."""
+
+    def test_find_atoms_in_ball_zyx(self):
+        """Test find_atoms_in_ball with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [0.0, 1.0, 2.0, 3.0],
@@ -215,11 +338,31 @@ class TestReturnAtomsByRadius:
                 "element": ["C", "C", "C", "C"],
             }
         )
-        center_point = (0.0, 0.0, 0.0)
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
         radius = 1.5
-        inside_df, outside_df = return_atoms_by_radius(df, center_point, radius)
+        inside_df, outside_df = find_atoms_in_ball(df, center, radius, zyx=True)
         assert len(inside_df) == 2
         assert len(outside_df) == 2
+        assert set(inside_df.index) == {0, 1}
+        assert set(outside_df.index) == {2, 3}
+
+    def test_find_atoms_in_ball_xyz(self):
+        """Test find_atoms_in_ball with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "z": [0.0, 0.0, 0.0, 0.0],
+                "element": ["C", "C", "C", "C"],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (x, y, z) when zyx=False
+        radius = 1.5
+        inside_df, outside_df = find_atoms_in_ball(df, center, radius, zyx=False)
+        assert len(inside_df) == 2
+        assert len(outside_df) == 2
+        assert set(inside_df.index) == {0, 1}
+        assert set(outside_df.index) == {2, 3}
 
 
 class TestRemoveSidechains:
