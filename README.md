@@ -44,18 +44,28 @@ print(f"Molecule types: {df['molecule_type'].unique()}")
 
 ```python
 from torch_structure_manipulation.structure_transforms import (
-    return_atoms_by_radius,
+    find_atoms_in_ball,
+    ball_query_atoms,
     center_structure,
     apply_rotation,
     separate_protein_rna,
 )
 
-# Select atoms within a radius from origin
-atoms_inside, atoms_outside = return_atoms_by_radius(
-    df, center_point=(0.0, 0.0, 0.0), radius=50.0
+# Select atoms within a ball (sphere) from origin
+# Using zyx coordinates (default)
+inside, outside = find_atoms_in_ball(
+    df, center=(0.0, 0.0, 0.0), radius=50.0, zyx=True
 )
-print(f"Atoms inside radius: {len(atoms_inside)}")
-print(f"Atoms outside radius: {len(atoms_outside)}")
+
+# Using xyz coordinates
+inside, outside = find_atoms_in_ball(
+    df, center=(0.0, 0.0, 0.0), radius=50.0, zyx=False
+)
+
+# Get boolean mask for easier composition of multiple queries
+inside_mask = ball_query_atoms(df, center=(0.0, 0.0, 0.0), radius=50.0, zyx=True)
+print(f"Atoms inside radius: {len(inside)}")
+print(f"Atoms outside radius: {len(outside)}")
 
 # Center structure at a specific point
 centered_df = center_structure(

@@ -11,9 +11,9 @@ from .rotate_molecule import (
     create_rotation_matrix_from_euler,
 )
 from .select_atoms import (
+    ball_query_atoms,
+    find_atoms_in_ball,
     remove_sidechains,
-    return_atoms_by_radius,
-    return_atoms_by_radius_from_atomzyx,
     separate_protein_rna,
 )
 from .translate_molecule import (
@@ -21,6 +21,7 @@ from .translate_molecule import (
     apply_translation_to_atomzyx,
 )
 from .utils import (
+    df_to_atomxyz,
     df_to_atomzyx,
     get_nucleic_acid_residues,
     get_protein_residues,
@@ -31,15 +32,16 @@ __all__ = [
     "apply_rotation_to_atomzyx",
     "apply_translation",
     "apply_translation_to_atomzyx",
+    "ball_query_atoms",
     "calculate_center_from_tensors",
     "center_structure",
     "center_structure_from_atomzyx",
     "create_rotation_matrix_from_euler",
+    "df_to_atomxyz",
     "df_to_atomzyx",
+    "find_atoms_in_ball",
     "get_nucleic_acid_residues",
     "get_protein_residues",
     "remove_sidechains",
-    "return_atoms_by_radius",
-    "return_atoms_by_radius_from_atomzyx",
     "separate_protein_rna",
 ]

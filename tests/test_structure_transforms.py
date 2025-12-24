@@ -10,16 +10,16 @@ from torch_structure_manipulation.structure_transforms import (
     apply_rotation_to_atomzyx,
     apply_translation,
     apply_translation_to_atomzyx,
+    ball_query_atoms,
     calculate_center_from_tensors,
     center_structure,
     center_structure_from_atomzyx,
     create_rotation_matrix_from_euler,
     df_to_atomzyx,
+    find_atoms_in_ball,
     get_nucleic_acid_residues,
     get_protein_residues,
     remove_sidechains,
-    return_atoms_by_radius,
-    return_atoms_by_radius_from_atomzyx,
     separate_protein_rna,
 )
 
@@ -188,25 +188,55 @@ class TestTranslation:
         assert np.allclose(result_coords, expected)
 
 
-class TestReturnAtomsByRadius:
-    """Tests for return_atoms_by_radius functions."""
+class TestBallQueryAtoms:
+    """Tests for ball_query_atoms function."""
 
-    def test_return_atoms_by_radius_from_atomzyx(self):
-        """Test radius filtering from atomzyx tensor."""
+    def test_ball_query_atoms_tensor_zyx(self):
+        """Test ball query from tensor with zyx coordinates."""
         atomzyx = torch.tensor(
             [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]
         )
-        center_point = (0.0, 0.0, 0.0)  # (z, y, x)
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
         radius = 1.5
-        inside_mask, outside_mask = return_atoms_by_radius_from_atomzyx(
-            atomzyx, center_point, radius
-        )
+        inside_mask = ball_query_atoms(atomzyx, center, radius, zyx=True)
         # First two points should be inside, last two outside
         assert inside_mask.tolist() == [True, True, False, False]
-        assert outside_mask.tolist() == [False, False, True, True]
 
-    def test_return_atoms_by_radius_dataframe(self):
-        """Test radius filtering on DataFrame."""
+    def test_ball_query_atoms_dataframe_zyx(self):
+        """Test ball query from DataFrame with zyx coordinates."""
+        df = pd.DataFrame(
+            {
+                "z": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "x": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
+        radius = 1.5
+        inside_mask = ball_query_atoms(df, center, radius, zyx=True)
+        assert inside_mask.tolist() == [True, True, False, False]
+
+    def test_ball_query_atoms_dataframe_xyz(self):
+        """Test ball query from DataFrame with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "z": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (x, y, z) when zyx=False
+        radius = 1.5
+        inside_mask = ball_query_atoms(df, center, radius, zyx=False)
+        # First two points should be inside, last two outside
+        assert inside_mask.tolist() == [True, True, False, False]
+
+
+class TestFindAtomsInBall:
+    """Tests for find_atoms_in_ball function."""
+
+    def test_find_atoms_in_ball_zyx(self):
+        """Test find_atoms_in_ball with zyx coordinates."""
         df = pd.DataFrame(
             {
                 "z": [0.0, 1.0, 2.0, 3.0],
@@ -215,11 +245,33 @@ class TestReturnAtomsByRadius:
                 "element": ["C", "C", "C", "C"],
             }
         )
-        center_point = (0.0, 0.0, 0.0)
+        center = (0.0, 0.0, 0.0)  # (z, y, x)
         radius = 1.5
-        inside_df, outside_df = return_atoms_by_radius(df, center_point, radius)
+        inside_df, outside_df = find_atoms_in_ball(df, center, radius, zyx=True)
         assert len(inside_df) == 2
         assert len(outside_df) == 2
+        assert set(inside_df.index) == {0, 1}
+        assert set(outside_df.index) == {2, 3}
+
+    def test_find_atoms_in_ball_xyz(self):
+        """Test find_atoms_in_ball with xyz coordinates."""
+        df = pd.DataFrame(
+            {
+                "x": [0.0, 1.0, 2.0, 3.0],
+                "y": [0.0, 0.0, 0.0, 0.0],
+                "z": [0.0, 0.0, 0.0, 0.0],
+                "element": ["C", "C", "C", "C"],
+            }
+        )
+        center = (0.0, 0.0, 0.0)  # (x, y, z) when zyx=False
+        radius = 1.5
+        inside_df, outside_df = find_atoms_in_ball(df, center, radius, zyx=False)
+        assert len(inside_df) == 2
+        assert len(outside_df) == 2
+        assert set(inside_df.index) == {0, 1}
+        assert set(outside_df.index) == {2, 3}
+
+
 
 
 class TestRemoveSidechains:
